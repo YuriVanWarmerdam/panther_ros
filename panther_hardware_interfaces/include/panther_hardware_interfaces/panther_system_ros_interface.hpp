@@ -62,36 +62,6 @@ struct CANErrors
   bool rear_can_net_err;
 };
 
-class TriggerServiceWrapper
-{
-public:
-  TriggerServiceWrapper(const std::function<void()> & callback) : callback_(callback){};
-
-  void CallbackWrapper(
-    std_srvs::srv::Trigger::Request::ConstSharedPtr /* request */,
-    std_srvs::srv::Trigger::Response::SharedPtr response);
-
-  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr service;
-
-private:
-  std::function<void()> callback_;
-};
-
-class SetBoolServiceWrapper
-{
-public:
-  SetBoolServiceWrapper(const std::function<void(const bool)> & callback) : callback_(callback){};
-
-  void CallbackWrapper(
-    std_srvs::srv::SetBool::Request::ConstSharedPtr request,
-    std_srvs::srv::SetBool::Response::SharedPtr response);
-
-  rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr service;
-
-private:
-  std::function<void(bool enable)> callback_;
-};
-
 /**
  * @brief A wrapper class for ROS services that simplifies the creation and management of a service
  * server.

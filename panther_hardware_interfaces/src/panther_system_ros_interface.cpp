@@ -116,32 +116,6 @@ PantherSystemRosInterface::~PantherSystemRosInterface()
   node_.reset();
 }
 
-void PantherSystemRosInterface::AddTriggerService(
-  const std::string service_name, const std::function<void()> & callback)
-{
-  auto wrapper = std::make_shared<TriggerServiceWrapper>(callback);
-
-  wrapper->service = node_->create_service<std_srvs::srv::Trigger>(
-    service_name, std::bind(
-                    &TriggerServiceWrapper::CallbackWrapper, wrapper, std::placeholders::_1,
-                    std::placeholders::_2));
-
-  trigger_wrappers_.push_back(wrapper);
-}
-
-void PantherSystemRosInterface::AddSetBoolService(
-  const std::string service_name, const std::function<void(const bool)> & callback)
-{
-  auto wrapper = std::make_shared<SetBoolServiceWrapper>(callback);
-
-  wrapper->service = node_->create_service<std_srvs::srv::SetBool>(
-    service_name, std::bind(
-                    &SetBoolServiceWrapper::CallbackWrapper, wrapper, std::placeholders::_1,
-                    std::placeholders::_2));
-
-  set_bool_wrappers_.push_back(wrapper);
-}
-
 void PantherSystemRosInterface::UpdateMsgErrorFlags(
   const RoboteqData & front, const RoboteqData & rear)
 {
