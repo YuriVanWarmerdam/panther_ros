@@ -16,6 +16,7 @@
 #define PANTHER_HARDWARE_INTERFACES_PANTHER_SYSTEM_HPP_
 
 #include <array>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -24,6 +25,8 @@
 
 #include <rclcpp_lifecycle/node_interfaces/lifecycle_node_interface.hpp>
 #include <rclcpp_lifecycle/state.hpp>
+
+#include <diagnostic_updater/diagnostic_status_wrapper.hpp>
 
 #include <hardware_interface/handle.hpp>
 #include <hardware_interface/system_interface.hpp>
@@ -78,7 +81,7 @@ protected:
   void ReadDriverStatesUpdateFrequency();
 
   void UpdateMotorsStates();
-  void UpdatDriverState();
+  void UpdateDriverState();
 
   void UpdateHwStates();
   void UpdateMotorsStatesDataTimedOut();
@@ -94,7 +97,10 @@ protected:
 
   void SetEStop();
   void ResetEStop();
-  bool ReadEStop();
+  std::function<bool()> ReadEStop;
+
+  void DiagnoseErrors(diagnostic_updater::DiagnosticStatusWrapper & status);
+  void DiagnoseStatus(diagnostic_updater::DiagnosticStatusWrapper & status);
 
   static constexpr size_t kJointsSize = 4;
 
@@ -140,9 +146,7 @@ protected:
   float panther_version_;
 
   std::atomic_bool e_stop_ = true;
-
   std::atomic_bool last_commands_zero_ = false;
-
   std::mutex motor_controller_write_mtx_;
 
   rclcpp::Time next_driver_state_update_time_{0, 0, RCL_ROS_TIME};

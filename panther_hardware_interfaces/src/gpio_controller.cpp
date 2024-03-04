@@ -20,7 +20,7 @@
 #include <thread>
 #include <utility>
 
-#include "gpiod.hpp"
+#include <gpiod.hpp>
 
 #include "panther_hardware_interfaces/gpio_controller.hpp"
 
@@ -30,7 +30,7 @@ namespace panther_hardware_interfaces
 Watchdog::Watchdog(std::shared_ptr<panther_gpiod::GPIODriver> gpio_driver)
 : gpio_driver_(std::move(gpio_driver))
 {
-  if (!gpio_driver_->IsPinAvaible(watchdog_pin_)) {
+  if (!gpio_driver_->IsPinAvailable(watchdog_pin_)) {
     throw std::runtime_error("Watchdog pin is not configured.");
   }
 }
@@ -43,12 +43,12 @@ bool Watchdog::TurnOn()
     return true;
   }
 
-  if (!gpio_driver_->IsPinAvaible(watchdog_pin_)) {
+  if (!gpio_driver_->IsPinAvailable(watchdog_pin_)) {
     throw std::runtime_error("Watchdog pin is not configured.");
   }
 
   watchdog_thread_enabled_ = true;
-  watchdog_thread_ = std::make_unique<std::thread>(&Watchdog::WatchdogThread, this);
+  watchdog_thread_ = std::thread(&Watchdog::WatchdogThread, this);
 
   return IsWatchdogEnabled();
 }
@@ -60,7 +60,7 @@ bool Watchdog::TurnOff()
   }
 
   watchdog_thread_enabled_ = false;
-  watchdog_thread_->join();
+  watchdog_thread_.join();
 
   return !IsWatchdogEnabled();
 }
@@ -68,7 +68,7 @@ bool Watchdog::TurnOff()
 void Watchdog::WatchdogThread()
 {
   while (watchdog_thread_enabled_) {
-    bool value = gpio_driver_->IsPinActive(watchdog_pin_);
+    const bool value = gpio_driver_->IsPinActive(watchdog_pin_);
 
     gpio_driver_->SetPinValue(watchdog_pin_, !value);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -77,12 +77,9 @@ void Watchdog::WatchdogThread()
   gpio_driver_->SetPinValue(watchdog_pin_, false);
 }
 
-bool Watchdog::IsWatchdogEnabled() const
-{
-  return watchdog_thread_ && watchdog_thread_->joinable();
-}
+bool Watchdog::IsWatchdogEnabled() const { return watchdog_thread_.joinable(); }
 
-void GPIOControllerInterface::ConfigureGpioStateCallback(
+void GPIOControllerInterface::RegisterGPIOEventCallback(
   const std::function<void(const panther_gpiod::GPIOInfo &)> & callback)
 {
   if (!gpio_driver_) {
@@ -97,9 +94,9 @@ bool GPIOControllerInterface::IsPinActive(const panther_gpiod::GPIOPin pin) cons
   return gpio_driver_->IsPinActive(pin);
 }
 
-bool GPIOControllerInterface::IsPinAvaible(const panther_gpiod::GPIOPin pin) const
+bool GPIOControllerInterface::IsPinAvailable(const panther_gpiod::GPIOPin pin) const
 {
-  return gpio_driver_->IsPinAvaible(pin);
+  return gpio_driver_->IsPinAvailable(pin);
 }
 
 void GPIOControllerPTH12X::Start()
@@ -108,28 +105,26 @@ void GPIOControllerPTH12X::Start()
   gpio_driver_->GPIOMonitorEnable(true, 60);
 
   gpio_driver_->SetPinValue(panther_gpiod::GPIOPin::VMOT_ON, true);
-  MotorsEnable(true);
+  MotorPowerEnable(true);
 
   watchdog_ = std::make_unique<Watchdog>(gpio_driver_);
 }
 
-// TODO: void
-bool GPIOControllerPTH12X::EStopTrigger()
+void GPIOControllerPTH12X::EStopTrigger()
 {
   if (!watchdog_->TurnOff()) {
-    throw std::runtime_error("Can't stop watchdg thread");
+    throw std::runtime_error("Can't stop watchdog thread");
   }
-  return true;
 }
 
-bool GPIOControllerPTH12X::EStopReset()
+void GPIOControllerPTH12X::EStopReset()
 {
-  auto e_stop_pin = panther_gpiod::GPIOPin::E_STOP_RESET;
+  const auto e_stop_pin = panther_gpiod::GPIOPin::E_STOP_RESET;
   bool e_stop_state = !gpio_driver_->IsPinActive(e_stop_pin);
 
   if (!e_stop_state) {
-    std::cout << "[GPIOController] E-STOP is not active, reset is not needed" << std::endl;
-    return true;
+    std::cout << "[GPIOController] E-stop is not active, reset is not needed" << std::endl;
+    return;
   }
 
   gpio_driver_->ChangePinDirection(e_stop_pin, gpiod::line::direction::OUTPUT);
@@ -145,18 +140,16 @@ bool GPIOControllerPTH12X::EStopReset()
   if (e_stop_state) {
     watchdog_->TurnOff();
     throw std::runtime_error(
-      "E-STOP reset failed, check for pressed E-STOP buttons or other triggers");
+      "E-stop reset failed, check for pressed E-stop buttons or other triggers");
   }
-
-  return true;
 }
 
-bool GPIOControllerPTH12X::MotorsEnable(const bool enable)
+bool GPIOControllerPTH12X::MotorPowerEnable(const bool enable)
 {
   return gpio_driver_->SetPinValue(panther_gpiod::GPIOPin::DRIVER_EN, enable);
 };
 
-bool GPIOControllerPTH12X::AUXEnable(const bool enable)
+bool GPIOControllerPTH12X::AUXPowerEnable(const bool enable)
 {
   return gpio_driver_->SetPinValue(panther_gpiod::GPIOPin::AUX_PW_EN, enable);
 };
@@ -166,7 +159,7 @@ bool GPIOControllerPTH12X::FanEnable(const bool enable)
   return gpio_driver_->SetPinValue(panther_gpiod::GPIOPin::FAN_SW, enable);
 };
 
-bool GPIOControllerPTH12X::VDIGEnable(const bool enable)
+bool GPIOControllerPTH12X::DigitalPowerEnable(const bool enable)
 {
   return gpio_driver_->SetPinValue(panther_gpiod::GPIOPin::VDIG_OFF, !enable);
 };
@@ -176,27 +169,45 @@ bool GPIOControllerPTH12X::ChargerEnable(const bool enable)
   return gpio_driver_->SetPinValue(panther_gpiod::GPIOPin::CHRG_DISABLE, !enable);
 }
 
+std::unordered_map<panther_gpiod::GPIOPin, bool>
+GPIOControllerPTH12X::QueryControlInterfaceIOStates() const
+{
+  std::unordered_map<panther_gpiod::GPIOPin, bool> io_state;
+
+  std::vector<panther_gpiod::GPIOPin> pins_to_query = {
+    panther_gpiod::GPIOPin::AUX_PW_EN,    panther_gpiod::GPIOPin::CHRG_SENSE,
+    panther_gpiod::GPIOPin::CHRG_DISABLE, panther_gpiod::GPIOPin::VDIG_OFF,
+    panther_gpiod::GPIOPin::FAN_SW,       panther_gpiod::GPIOPin::SHDN_INIT,
+    panther_gpiod::GPIOPin::VMOT_ON,
+  };
+
+  std::for_each(pins_to_query.begin(), pins_to_query.end(), [&](panther_gpiod::GPIOPin pin) {
+    bool is_active = gpio_driver_->IsPinActive(pin);
+    io_state.emplace(pin, is_active);
+  });
+
+  return io_state;
+}
+
 void GPIOControllerPTH10X::Start()
 {
-  gpio_driver_ = std::make_unique<panther_gpiod::GPIODriver>(gpio_config_info_storage_);
+  gpio_driver_ = std::make_shared<panther_gpiod::GPIODriver>(gpio_config_info_storage_);
   gpio_driver_->GPIOMonitorEnable(true, 60);
 
   gpio_driver_->SetPinValue(panther_gpiod::GPIOPin::MOTOR_ON, true);
 }
 
-bool GPIOControllerPTH10X::EStopTrigger() { return true; }
+void GPIOControllerPTH10X::EStopTrigger() {}
 
-bool GPIOControllerPTH10X::EStopReset()
+void GPIOControllerPTH10X::EStopReset()
 {
   if (!gpio_driver_->IsPinActive(panther_gpiod::GPIOPin::STAGE2_INPUT)) {
     throw std::runtime_error(
       "Motors are not powered up. Please verify if the main switch is in the 'STAGE2' position");
   }
-
-  return true;
 }
 
-bool GPIOControllerPTH10X::MotorsEnable(const bool enable)
+bool GPIOControllerPTH10X::MotorPowerEnable(const bool enable)
 {
   if (enable && !gpio_driver_->IsPinActive(panther_gpiod::GPIOPin::STAGE2_INPUT)) {
     throw std::runtime_error(
@@ -206,7 +217,7 @@ bool GPIOControllerPTH10X::MotorsEnable(const bool enable)
   return gpio_driver_->SetPinValue(panther_gpiod::GPIOPin::MOTOR_ON, enable);
 }
 
-bool GPIOControllerPTH10X::AUXEnable(const bool /* enable */)
+bool GPIOControllerPTH10X::AUXPowerEnable(const bool /* enable */)
 {
   throw std::runtime_error("This robot version does not support this functionality");
 };
@@ -216,7 +227,7 @@ bool GPIOControllerPTH10X::FanEnable(const bool /* enable */)
   throw std::runtime_error("This robot version does not support this functionality");
 }
 
-bool GPIOControllerPTH10X::VDIGEnable(const bool /* enable */)
+bool GPIOControllerPTH10X::DigitalPowerEnable(const bool /* enable */)
 {
   throw std::runtime_error("This robot version does not support this functionality");
 };
@@ -224,6 +235,23 @@ bool GPIOControllerPTH10X::VDIGEnable(const bool /* enable */)
 bool GPIOControllerPTH10X::ChargerEnable(const bool /* enable */)
 {
   throw std::runtime_error("This robot version does not support this functionality");
+}
+
+std::unordered_map<panther_gpiod::GPIOPin, bool>
+GPIOControllerPTH10X::QueryControlInterfaceIOStates() const
+{
+  std::unordered_map<panther_gpiod::GPIOPin, bool> io_state;
+
+  io_state.emplace(panther_gpiod::GPIOPin::AUX_PW_EN, true);
+  io_state.emplace(panther_gpiod::GPIOPin::CHRG_SENSE, false);
+  io_state.emplace(panther_gpiod::GPIOPin::CHRG_DISABLE, false);
+  io_state.emplace(panther_gpiod::GPIOPin::VDIG_OFF, false);
+  io_state.emplace(panther_gpiod::GPIOPin::FAN_SW, false);
+  io_state.emplace(panther_gpiod::GPIOPin::SHDN_INIT, false);
+  io_state.emplace(
+    panther_gpiod::GPIOPin::MOTOR_ON, gpio_driver_->IsPinActive(panther_gpiod::GPIOPin::MOTOR_ON));
+
+  return io_state;
 }
 
 }  // namespace panther_hardware_interfaces
